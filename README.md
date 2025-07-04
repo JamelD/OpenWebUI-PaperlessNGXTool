@@ -3,6 +3,8 @@
 A powerful OpenWebUI tool for searching, previewing, and extracting content from your [Paperless](https://github.com/paperless-ngx/paperless-ngx) DMS.  
 Features async requests, snippet-first search to avoid LLM token overload, and configurable parameters via environment or UI.
 
+Forked from [Slatibartfas/PaperlessNGXFunction](https://github.com/Slatibartfas/PaperlessNGXFunction/tree/main)
+
 ---
 
 ## Features
@@ -26,6 +28,7 @@ pip install httpx python-dotenv pydantic
 3. Set environment variables (`.env` in the tool directory or in your system):
 
 ~~~env
+PAPERLESS_URL=http://paperless.yourdomain.com:8000/
 PAPERLESS_URL=https://paperless.yourdomain.com/
 PAPERLESS_TOKEN=your_token_here
 SNIPPET_LENGTH=1500
@@ -39,6 +42,7 @@ MAX_SNIPPETS=10
 | Variable        | Description                                 | Default |
 |-----------------|---------------------------------------------|---------|
 | `PAPERLESS_URL` | Your Paperless base URL                     | — |
+| `PAPERLESS_VURL` | Your Paperless vanity URL                     | — |
 | `PAPERLESS_TOKEN` | Your Paperless API token                  | — |
 | `SNIPPET_LENGTH` | Max characters per snippet (preview)       | 1500 |
 | `MAX_SNIPPETS`   | Max number of snippets per search          | 10 |
