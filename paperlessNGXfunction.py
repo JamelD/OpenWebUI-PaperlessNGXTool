@@ -1,10 +1,11 @@
 """
 title: PaperlessNGX Document Search Tool (async, snippet-first, adjustable)
-author: Alexander Klingspor, based off Jonas Leine
-funding_url: https://github.com/Slatibartfas/PaperlessNGXFunction/
-version: 1.4.0
+author: JamelD. based off Alexander Klingspor, based off Jonas Leine
+funding_url: https://github.com/JamelD/OpenWebUI-PaperlessNGXTool
+version: 1.5.0
 license: MIT
 """
+
 import json
 import os
 import httpx
@@ -35,12 +36,22 @@ class PaperlessDocumentLoader(BaseLoader):
     Async Paperless document loader that retrieves documents via REST API with optional filters.
     """
 
-    def __init__(self, documentTypeName: Optional[str] = None, documentTagName: Optional[str] = None,
-                 correspondent: Optional[str] = None, url: Optional[str] = None,
-                 token: Optional[str] = None, created_year: Optional[int] = None,
-                 created_month: Optional[int] = None, event_emitter: Callable[[str], Any] = None,
-                 max_docs: int = 10, snippet_length: int = 1500) -> None:
+    def __init__(
+        self,
+        documentTypeName: Optional[str] = None,
+        documentTagName: Optional[str] = None,
+        correspondent: Optional[str] = None,
+        url: Optional[str] = None,
+        vurl: Optional[str] = None,
+        token: Optional[str] = None,
+        created_year: Optional[int] = None,
+        created_month: Optional[int] = None,
+        event_emitter: Callable[[str], Any] = None,
+        max_docs: int = 10,
+        snippet_length: int = 1500,
+    ) -> None:
         self.url = url.rstrip("/") + "/api/documents/"
+        self.vurl = vurl
         self.token = token or ""
         self.documentTypeName = documentTypeName
         self.documentTagName = documentTagName
@@ -72,13 +83,15 @@ class PaperlessDocumentLoader(BaseLoader):
         total_docs = 0
         page_num = 0
 
+        secureURL = self.vurl + "/documents/"
+
         async with httpx.AsyncClient(timeout=15) as client:
             while next_url and total_docs < self.max_docs:
                 try:
                     resp = await client.get(
                         next_url,
                         headers=headers,
-                        params=querystring if next_url == self.url else {}
+                        params=querystring if next_url == self.url else {},
                     )
                     resp.raise_for_status()
                     data = resp.json()
@@ -87,11 +100,13 @@ class PaperlessDocumentLoader(BaseLoader):
                         await self.event_emitter(f"Error retrieving documents: {e}")
                     break
 
-                docs = data.get('results', [])
+                docs = data.get("results", [])
                 for result in docs:
                     if total_docs >= self.max_docs:
                         break
-                    snippet = trim_content(result.get("content", ""), self.snippet_length)
+                    snippet = trim_content(
+                        result.get("content", ""), self.snippet_length
+                    )
                     docdict = {
                         "id": result["id"],
                         "title": result.get("title", ""),
@@ -99,7 +114,7 @@ class PaperlessDocumentLoader(BaseLoader):
                         "correspondent": result.get("correspondent", ""),
                         "document_type": result.get("document_type", ""),
                         "snippet": snippet,
-                        "source": f"{self.url.replace('/api', '')}{result['id']}",
+                        "source": f"{secureURL}{result['id']}",
                     }
                     yield docdict
                     total_docs += 1
@@ -119,6 +134,9 @@ class PaperlessDocumentLoader(BaseLoader):
         """
         headers = {"Authorization": f"Token {self.token}"}
         url = self.url + str(document_id) + "/"
+
+        secureURL = self.vurl + "/documents/"
+        
         async with httpx.AsyncClient(timeout=15) as client:
             try:
                 resp = await client.get(url, headers=headers)
@@ -131,7 +149,7 @@ class PaperlessDocumentLoader(BaseLoader):
                     "correspondent": result.get("correspondent", ""),
                     "document_type": result.get("document_type", ""),
                     "content": result.get("content", ""),
-                    "source": f"{self.url.replace('/api', '')}{result['id']}",
+                    "source": f"{secureURL}{result['id']}",
                 }
             except Exception as e:
                 return {"error": f"Error retrieving document {document_id}: {e}"}
@@ -153,15 +171,26 @@ class EventEmitter:
     async def emit(self, description="Unknown State", status="in_progress", done=False):
         if self.event_emitter:
             await self.event_emitter(
-                {"type": "status", "data": {"status": status, "description": description, "done": done}}
+                {
+                    "type": "status",
+                    "data": {
+                        "status": status,
+                        "description": description,
+                        "done": done,
+                    },
+                }
             )
 
 
 class Tools:
     class Valves(BaseModel):
         PAPERLESS_URL: str = Field(
+            default="http://paperless.yourdomain.com:8000",
+            description="The domain of your Paperless service. Used for connection.",
+        )
+        PAPERLESS_VURL: str = Field(
             default="https://paperless.yourdomain.com/",
-            description="The domain of your Paperless service",
+            description="The vanity URL of your Paperless service. Used for source links.",
         )
         PAPERLESS_TOKEN: str = Field(
             default="", description="The token to read docs from Paperless"
@@ -178,12 +207,15 @@ class Tools:
     def __init__(self):
         self.valves = self.Valves()
 
-    async def search_paperless_snippets(self, documentTypeName: Optional[str] = None,
-                                        documentTagName: Optional[str] = None,
-                                        correspondent: Optional[str] = None,
-                                        created_year: Optional[int] = None,
-                                        created_month: Optional[int] = None,
-                                        __event_emitter__: Callable[[dict], Any] = None) -> str:
+    async def search_paperless_snippets(
+        self,
+        documentTypeName: Optional[str] = None,
+        documentTagName: Optional[str] = None,
+        correspondent: Optional[str] = None,
+        created_year: Optional[int] = None,
+        created_month: Optional[int] = None,
+        __event_emitter__: Callable[[dict], Any] = None,
+    ) -> str:
         """
         Search for Paperless documents and return snippet previews with metadata and IDs.
         """
@@ -197,6 +229,7 @@ class Tools:
                 documentTagName=documentTagName,
                 correspondent=correspondent,
                 url=self.valves.PAPERLESS_URL,
+                vurl=self.valves.PAPERLESS_vurl,
                 token=self.valves.PAPERLESS_TOKEN,
                 created_month=created_month,
                 created_year=created_year,
@@ -224,17 +257,21 @@ class Tools:
             await emitter.error_update(msg)
             return msg
 
-    async def get_paperless_document_full(self, document_id: int,
-                                          __event_emitter__: Callable[[dict], Any] = None) -> str:
+    async def get_paperless_document_full(
+        self, document_id: int, __event_emitter__: Callable[[dict], Any] = None
+    ) -> str:
         """
         Load the full content of a single document by ID.
         """
         emitter = EventEmitter(__event_emitter__)
         try:
-            await emitter.progress_update(f"Loading full text for document {document_id}...")
+            await emitter.progress_update(
+                f"Loading full text for document {document_id}..."
+            )
             loader = PaperlessDocumentLoader(
                 url=self.valves.PAPERLESS_URL,
-                token=self.valves.PAPERLESS_TOKEN
+                vurl=self.valves.PAPERLESS_vurl,
+                token=self.valves.PAPERLESS_TOKEN,
             )
             doc = await loader.get_full_content_by_id(document_id)
             if doc and "content" in doc:
@@ -249,5 +286,8 @@ class Tools:
             await emitter.error_update(msg)
             return msg
 
-if __name__ == '__main__':
-    print("Paperless async snippet tool loaded. Run via OpenWebUI or your async environment.")
+
+if __name__ == "__main__":
+    print(
+        "Paperless async snippet tool loaded. Run via OpenWebUI or your async environment."
+    )
